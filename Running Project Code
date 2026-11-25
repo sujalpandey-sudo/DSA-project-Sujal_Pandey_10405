@@ -1,0 +1,188 @@
+import java.util.*;
+
+public class Main {
+    static class Edge {
+        String to, line; int time, fare; double distance;
+        Edge(String to, String line, int time, double distance, int fare) {
+            this.to=to; this.line=line; this.time=time; this.distance=distance; this.fare=fare;
+        }
+    }
+    static class Trie {
+        Map<Character,Trie> child=new TreeMap<>(); boolean end; String name;
+    }
+    static Map<String,List<Edge>> graph=new TreeMap<>();
+    static Trie root=new Trie();
+    static Stack<String> history=new Stack<>();
+    static Scanner sc=new Scanner(System.in);
+    static final int PENALTY=5;
+
+    static void addStation(String s) {
+        graph.putIfAbsent(s,new ArrayList<>());
+        Trie n=root;
+        for(char c:s.toLowerCase().toCharArray()) n=n.child.computeIfAbsent(c,k->new Trie());
+        n.end=true; n.name=s;
+    }
+    static void add(String a,String b,String line,int time,double distance,int fare) {
+        addStation(a); addStation(b);
+        graph.get(a).add(new Edge(b,line,time,distance,fare));
+        graph.get(b).add(new Edge(a,line,time,distance,fare));
+    }
+    static void load() {
+        String a="Bus 101",b="Bus 202",c="Bus 303",e="Express E1";
+        add("Rungta University","Kohka",a,10,5,10);
+        add("Kohka","Supela",a,8,4,10);
+        add("Supela","Bhilai Nagar",a,9,4.5,10);
+        add("Bhilai Nagar","Civic Center",a,7,3.5,10);
+        add("Risali","Power House",b,6,3,8);
+        add("Power House","Supela",b,7,3.5,8);
+        add("Supela","Smriti Nagar",b,6,3,8);
+        add("Smriti Nagar","Durg Station",b,8,4,10);
+        add("Civic Center","Sector 6",c,5,2.5,8);
+        add("Sector 6","Nehru Nagar",c,6,3,8);
+        add("Nehru Nagar","Durg Station",c,7,3.5,10);
+        add("Rungta University","Supela",e,12,9.5,25);
+        add("Supela","Civic Center",e,10,8.5,20);
+        add("Civic Center","Durg Station",e,9,6.5,22);
+    }
+    static void collect(Trie n,List<String> out) {
+        if(n.end) out.add(n.name);
+        for(Trie x:n.child.values()) collect(x,out);
+    }
+    static List<String> prefix(String s) {
+        Trie n=root;
+        for(char c:s.toLowerCase().toCharArray()) {
+            n=n.child.get(c); if(n==null) return new ArrayList<>();
+        }
+        List<String> out=new ArrayList<>(); collect(n,out); return out;
+    }
+    static String choose(String label) {
+        while(true) {
+            System.out.print(label+" (number/name/prefix): "); String s=sc.nextLine().trim();
+            try {
+                int k=Integer.parseInt(s); List<String> names=new ArrayList<>(graph.keySet());
+                if(k>0&&k<=names.size()) return names.get(k-1);
+            } catch(Exception ignored) {}
+            for(String x:graph.keySet()) if(x.equalsIgnoreCase(s)) return x;
+            List<String> found=prefix(s);
+            if(found.size()==1) return found.get(0);
+            System.out.println(found.isEmpty()?"Station not found.":"Matches: "+found);
+        }
+    }
+    static class State {
+        String station,line; double cost;
+        State(String s,String l,double c) { station=s; line=l; cost=c; }
+    }
+    static double weight(Edge e,int type) {
+        return type==1?e.time:type==2?e.distance:e.fare;
+    }
+    static List<Edge> rebuild(Map<String,String> prev,Map<String,Edge> used,String key) {
+        LinkedList<Edge> p=new LinkedList<>();
+        while(used.containsKey(key)) { p.addFirst(used.get(key)); key=prev.get(key); }
+        return p;
+    }
+    static List<Edge> dijkstra(String src,String dst,int type) {
+        PriorityQueue<State> pq=new PriorityQueue<>(Comparator.comparingDouble(x->x.cost));
+        Map<String,Double> best=new HashMap<>();
+        Map<String,String> prev=new HashMap<>(); Map<String,Edge> used=new HashMap<>();
+        pq.add(new State(src,"-",0)); best.put(src+"|-",0.0);
+        while(!pq.isEmpty()) {
+            State cur=pq.poll(); String key=cur.station+"|"+cur.line;
+            if(cur.cost>best.get(key)) continue;
+            if(cur.station.equals(dst)) return rebuild(prev,used,key);
+            for(Edge e:graph.get(cur.station)) {
+                double cost=cur.cost+weight(e,type);
+                if(type==1&&!cur.line.equals("-")&&!cur.line.equals(e.line)) cost+=PENALTY;
+                String next=e.to+"|"+e.line;
+                if(!best.containsKey(next)||cost<best.get(next)) {
+                    best.put(next,cost); prev.put(next,key); used.put(next,e);
+                    pq.add(new State(e.to,e.line,cost));
+                }
+            }
+        }
+        return null;
+    }
+    static List<Edge> bfs(String src,String dst) {
+        Queue<String> q=new LinkedList<>(); Set<String> seen=new HashSet<>();
+        Map<String,String> prev=new HashMap<>(); Map<String,Edge> used=new HashMap<>();
+        q.add(src); seen.add(src);
+        while(!q.isEmpty()) {
+            String s=q.poll(); if(s.equals(dst)) break;
+            for(Edge e:graph.get(s)) if(seen.add(e.to)) {
+                prev.put(e.to,s); used.put(e.to,e); q.add(e.to);
+            }
+        }
+        return seen.contains(dst)?rebuild(prev,used,dst):null;
+    }
+    static String typeName(int t) {
+        return t==1?"Fastest":t==2?"Shortest":t==3?"Cheapest":"Fewest stops";
+    }
+    static void show(String src,List<Edge> p,int type) {
+        int time=0,fare=0,transfers=0; double distance=0; String last="";
+        System.out.println("\nRoute: "+src);
+        for(Edge e:p) {
+            System.out.println(" -> "+e.to+" ("+e.line+")");
+            time+=e.time; fare+=e.fare; distance+=e.distance;
+            if(!last.isEmpty()&&!last.equals(e.line)) transfers++;
+            last=e.line;
+        }
+        if(type==1) time+=transfers*PENALTY;
+        System.out.println("Type: "+typeName(type)+" | Time: "+time+" min | Distance: "+distance+" km");
+        System.out.println("Fare: Rs."+fare+" | Stops: "+p.size()+" | Transfers: "+transfers);
+        history.push(src+" -> "+p.get(p.size()-1).to+" ("+typeName(type)+")");
+    }
+    static void find(int type) {
+        String a=choose("Source"),b=choose("Destination");
+        if(a.equals(b)) { System.out.println("Same station selected."); return; }
+        List<Edge> p=type==4?bfs(a,b):dijkstra(a,b,type);
+        if(p==null) System.out.println("No route found."); else show(a,p,type);
+    }
+    static void compare() {
+        String a=choose("Source"),b=choose("Destination");
+        if(a.equals(b)) { System.out.println("Same station selected."); return; }
+        for(int t=1;t<=4;t++) {
+            List<Edge> p=t==4?bfs(a,b):dijkstra(a,b,t);
+            System.out.print(typeName(t)+": ");
+            if(p==null) System.out.println("No route");
+            else {
+                int tm=0,fa=0,tr=0; double di=0; String last="";
+                for(Edge e:p) { tm+=e.time; fa+=e.fare; di+=e.distance; if(!last.isEmpty()&&!last.equals(e.line)) tr++; last=e.line; }
+                if(t==1) tm+=tr*PENALTY;
+                System.out.println(tm+" min, "+di+" km, Rs."+fa+", "+p.size()+" stops");
+            }
+        }
+        history.push(a+" -> "+b+" (comparison)");
+    }
+    static void addNew() {
+        System.out.print("First station: "); String a=sc.nextLine().trim();
+        System.out.print("Second station: "); String b=sc.nextLine().trim();
+        System.out.print("Bus/line name: "); String l=sc.nextLine().trim();
+        try {
+            System.out.print("Time (min): "); int t=Integer.parseInt(sc.nextLine());
+            System.out.print("Distance (km): "); double d=Double.parseDouble(sc.nextLine());
+            System.out.print("Fare (Rs.): "); int f=Integer.parseInt(sc.nextLine());
+            if(a.isEmpty()||b.isEmpty()||l.isEmpty()||a.equalsIgnoreCase(b)||t<=0||d<=0||f<=0) throw new Exception();
+            add(a,b,l,t,d,f); System.out.println("Connection added.");
+        } catch(Exception ex) { System.out.println("Invalid input; connection not added."); }
+    }
+    public static void main(String[] args) {
+        load();
+        while(true) {
+            System.out.println("\n--- PUBLIC TRANSPORT ROUTE PLANNER ---");
+            System.out.println("1.Fastest  2.Shortest  3.Cheapest  4.Fewest Stops");
+            System.out.println("5.Compare  6.Search Station  7.Add Connection");
+            System.out.println("8.Latest Search  9.List Stations  0.Exit");
+            System.out.print("Choice: ");
+            try {
+                int ch=Integer.parseInt(sc.nextLine());
+                if(ch>=1&&ch<=4) find(ch);
+                else if(ch==5) compare();
+                else if(ch==6) { System.out.print("Enter prefix: "); System.out.println(prefix(sc.nextLine())); }
+                else if(ch==7) addNew();
+                else if(ch==8) System.out.println(history.empty()?"No recent search.":history.peek());
+                else if(ch==9) { int i=1; for(String s:graph.keySet()) System.out.println((i++)+". "+s); }
+                else if(ch==0) { System.out.println("Thank you!"); break; }
+                else System.out.println("Invalid choice.");
+            } catch(Exception ex) { System.out.println("Please enter a valid number."); }
+        }
+    }
+}
